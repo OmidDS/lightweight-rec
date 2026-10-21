@@ -143,6 +143,11 @@ grep -q -x -- 'f32le' "$ARGV" || bad "ok: ffmpeg was not given the raw PCM input
 grep -q -x -- "$DIR/.sysaudio.fifo" "$ARGV" || bad "ok: ffmpeg was not given the FIFO"
 grep -q -x -- '-filter_complex' "$ARGV" || bad "ok: ffmpeg has no mix filter"
 grep -q 'amix=inputs=2' "$ARGV" || bad "ok: the filter does not mix two inputs"
+# And the two sides kept apart on a second track, which is what lets the
+# transcription tell the person recording from the other side of a call.
+grep -q 'join=inputs=2:channel_layout=stereo:map=0.0-FL|1.0-FR' "$ARGV" || bad "ok: no stereo speakers track in the filter"
+grep -q -x -- 'handler_name=speakers' "$ARGV" || bad "ok: the speakers track is not tagged"
+grep -q -x -- '\[spk\]' "$ARGV" || bad "ok: the speakers track is not mapped into the file"
 grep -q -x -- '-map' "$ARGV" || bad "ok: without -map the mixed audio would not reach the file"
 # The screen and microphone input stays exactly what it was: screen 0 is
 # ffmpeg video [5], the built-in microphone audio [1] in this fixture.

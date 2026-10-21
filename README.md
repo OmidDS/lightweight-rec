@@ -243,6 +243,7 @@ every key.
 | `RECORD_SCREEN` | `0` | which `Capture screen N` is recorded; `record screens` lists them |
 | `RECORD_MIC` | empty | microphone by name, exactly as ffmpeg lists it; empty resolves one on every start |
 | `RECORD_SYSTEM_AUDIO` | `1` | `0` records the microphone alone: on headphones, only your own voice |
+| `RECORD_SPEAKER_ME`, `RECORD_SPEAKER_OTHERS` | `Me`, `Others` | the labels on transcript lines from the microphone and from what the Mac played |
 | `RECORD_AI` | `claude` | `claude`, `cursor`, `copilot`, `ollama`, `lmstudio`, `openai`, `anthropic`, `gemini`, `openrouter`, `custom`, or `0` for no call and no egress |
 | `RECORD_AI_VISION_MODEL` | empty | model that reads the frames; empty is the backend's default |
 | `RECORD_AI_META_MODEL` | empty | model that writes title, tags and summary; empty is the backend's default |
@@ -274,6 +275,23 @@ ScreenCaptureKit and streams it to ffmpeg over a FIFO: no loopback driver, no
 aggregate device, your output stays selected and the volume keys keep working.
 The audio is taken before the output mixer, so a muted headset still records
 the call.
+
+The two sources are also kept apart on a second audio track, microphone on the
+left and system audio on the right, which players skip by default. The
+transcription reads that track in stereo and labels every line with who spoke:
+
+```
+[00:00:00.000 --> 00:00:04.000]  Me: How does the search ranking work?
+[00:00:04.000 --> 00:00:09.000]  Others: It uses popularity and stock.
+```
+
+It comes from the audio, not the screen, so it works with the call minimized or
+on another display. Each line is one Whisper segment, and a segment that spans
+a quick handover takes the side that was louder in it (`Me/Others` when neither
+was). Everyone on the far side of a call is `Others`: telling remote people
+apart is not something this does. Rename the two with `RECORD_SPEAKER_ME` and
+`RECORD_SPEAKER_OTHERS`. Takes recorded before this track existed, or with the
+microphone only, are transcribed without labels.
 
 `RECORD_SYSTEM_AUDIO=0` turns it off. If the capture cannot start, the take
 still starts with the microphone only and prints the helper's reason, kept in

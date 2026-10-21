@@ -71,6 +71,10 @@ AI_CURLRC=""                      # written per run, holds the key, mode 600
 AI_FRAMES="${RECORD_AI_FRAMES:-8}"     # frames one HTTP screen call carries
 AI_TIMEOUT="${RECORD_AI_TIMEOUT:-600}" # seconds one HTTP call may take
 SYSTEM_AUDIO="${RECORD_SYSTEM_AUDIO:-1}" # off: the microphone alone, nothing the Mac plays
+# Who each transcript line belongs to, when system audio is on: the microphone
+# is the person at this Mac, what the Mac plays is the other side of the call.
+SPEAKER_ME="${RECORD_SPEAKER_ME:-Me}"
+SPEAKER_OTHERS="${RECORD_SPEAKER_OTHERS:-Others}"
 LAUNCH_APP="${RECORD_LAUNCH_APP:-}"   # empty: this tool opens no other app
 DAYS="${RECORD_DAYS:-14}"       # mp4 files older than this are deleted on start
 MIN_SECS=20      # a toggle this young cannot stop: it is a double tap
@@ -315,7 +319,8 @@ AI_ASK="This is the audio transcript and screen description of a work session or
 TITLE: <max 6 words, in English, specific to the content>
 TAGS: <2-4 short kebab-case tags separated by space, e.g. meeting standup planning>
 SUMMARY: <2-3 sentences on the content and any decisions>
-The words TITLE:, TAGS: and SUMMARY: are part of the answer, not placeholders to replace: keep them."
+The words TITLE:, TAGS: and SUMMARY: are part of the answer, not placeholders to replace: keep them.
+Transcript lines that start with \"$SPEAKER_ME:\" were said by the person who made the recording, into their own microphone; lines that start with \"$SPEAKER_OTHERS:\" came out of the computer, the other side of a call. Never attribute one side's words to the other."
 
 # At most RECORD_AI_FRAMES of the lines on stdin, evenly spread over them, the
 # first and the last always kept. A CLI is handed the whole hour's worth of
@@ -563,6 +568,7 @@ transcript_suspect() {
   printf '%s\n' "$1" | awk -v minimum="$2" '
     {
       sub(/^\[[^]]*\][[:space:]]*/, "")
+      sub(/^\(speaker [^)]*\)[[:space:]]*/, "")
       gsub(/[^[:alnum:]]+/, " ")
       n = split(tolower($0), tokens, " ")
       for (i = 1; i <= n; i++) {
@@ -603,16 +609,35 @@ shift_transcript() {
   '
 }
 
+# whisper-cli --diarize compares the two channels of each segment and tags it
+# "(speaker 0)" (left, the microphone), "(speaker 1)" (right, what the Mac
+# played) or "(speaker ?)" when neither is clearly louder. The names replace
+# the tags. ENVIRON and not awk -v, which would read a backslash in a name as
+# an escape; substr and not sub, which would read an & in it as the match.
+label_speakers() {
+  SPEAKER_ME="$SPEAKER_ME" SPEAKER_OTHERS="$SPEAKER_OTHERS" awk '
+    BEGIN {
+      tag["0"] = ENVIRON["SPEAKER_ME"] ":"
+      tag["1"] = ENVIRON["SPEAKER_OTHERS"] ":"
+      tag["?"] = ENVIRON["SPEAKER_ME"] "/" ENVIRON["SPEAKER_OTHERS"] ":"
+    }
+    /^\[/ && match($0, /\(speaker [01?]\)/) {
+      $0 = substr($0, 1, RSTART - 1) tag[substr($0, RSTART + 9, 1)] substr($0, RSTART + RLENGTH)
+    }
+    { print }
+  '
+}
+
 transcribe_interval() {
   local source="$1" start="$2" length="$3" kind="$4" audio result
   audio="$WORK/$kind-$start.wav"
   if ! ffmpeg -y -hide_banner -loglevel error -ss "$start" -t "$length" \
-       -i "$source" -ar 16000 -ac 1 "$audio" 2>"$WORK/segment.err"; then
+       -i "$source" -ar 16000 -ac "$CHANNELS" "$audio" 2>"$WORK/segment.err"; then
     echo "Audio segment at $(timestamp_at "$start") could not be decoded." >&2
     cat "$WORK/segment.err" >&2
     return 1
   fi
-  if ! result=$(whisper-cli -m "$MODEL" -f "$audio" -l auto -np 2>"$WORK/whisper.err"); then
+  if ! result=$(whisper-cli -m "$MODEL" -f "$audio" -l auto -np ${DIARIZE[@]+"${DIARIZE[@]}"} 2>"$WORK/whisper.err"); then
     echo "Speech recognition failed at $(timestamp_at "$start")." >&2
     tail -5 "$WORK/whisper.err" >&2
     rm -f "$audio"
@@ -838,16 +863,32 @@ case "$cmd" in
     TEXT=""
     VISUAL=""
     SKIPPED=""
+    HAS_SPEAKERS=0
     for f in "${FILES[@]}"; do
       wav="$WORK/audio.wav"
       rm -f "$wav"
+      # A take with system audio carries a second audio track, tagged
+      # "speakers": the microphone alone on the left, what the Mac played alone
+      # on the right. Transcribed in stereo, whisper can say which side spoke.
+      # Older takes and microphone-only ones have the mono track alone and are
+      # transcribed exactly as before.
+      CHANNELS=1
+      DIARIZE=()
+      PICK=()
+      if [ "$(ffprobe -v error -select_streams a:1 -show_entries stream_tags=handler_name \
+              -of csv=p=0 "$f" 2>/dev/null)" = speakers ]; then
+        CHANNELS=2
+        DIARIZE=(--diarize)
+        PICK=(-map 0:a:1)
+        HAS_SPEAKERS=1
+      fi
       # One unreadable segment must never cost the whole day. A forced
       # shutdown or a dead battery leaves the last mp4 without its moov atom,
       # and that is precisely the case the README promises still works. Under
       # set -e an unguarded ffmpeg here aborted the background run on that
       # file, threw away every hour already transcribed, wrote no note at all,
       # and left one "moov atom not found" line in a log nobody opens.
-      if ! ffmpeg -y -hide_banner -loglevel error -i "$f" -ar 16000 -ac 1 "$wav" 2>&1; then
+      if ! ffmpeg -y -hide_banner -loglevel error -i "$f" ${PICK[@]+"${PICK[@]}"} -ar 16000 -ac "$CHANNELS" "$wav" 2>&1; then
         echo "Skipped $(basename "$f"): could not be decoded, probably an interrupted segment."
         SKIPPED="$SKIPPED
 - \`$f\` (unreadable, probably interrupted)"
@@ -895,6 +936,7 @@ $(printf '%s\n' "$recovered" | shift_transcript "$minute")"
         done
       done
       rm -f "$wav"
+      [ "$CHANNELS" = 2 ] && chunk=$(printf '%s\n' "$chunk" | label_speakers)
       TEXT="$TEXT
 ## $(basename "$f" .mp4 | tr '_' ' ')
 $chunk
@@ -1077,6 +1119,10 @@ $descr
       echo
       echo "*Timestamps in the transcript are relative to the matching hour's video:*"
       echo "*each section below is named after its file.*"
+      if [ "$HAS_SPEAKERS" = 1 ]; then
+        echo "*$SPEAKER_ME: the microphone on this Mac. $SPEAKER_OTHERS: what the Mac played, the*"
+        echo "*other side of a call. $SPEAKER_ME/$SPEAKER_OTHERS: both, or neither clearly louder.*"
+      fi
       if [ -n "$VISUAL" ]; then
         echo
         echo "## What was on screen"
@@ -1205,13 +1251,18 @@ $descr
       fi
     fi
     if [ "${#SYS_INPUT[@]}" -gt 0 ]; then
-      # Mono out: the microphone at full level plus system audio at half, the
-      # balance the old BlackHole mix had. aresample=async lets the microphone
-      # clock drift against the pipe without the mixer stalling or the two
-      # tracks sliding apart over an hour. duration=first: the take ends when
-      # the microphone input does, and a helper that dies early only costs
-      # the system audio from that moment on.
-      MIX=(-filter_complex "[0:a]aresample=async=1,aformat=channel_layouts=mono[mic];[1:a]aformat=channel_layouts=mono[sys];[mic][sys]amix=inputs=2:duration=first:weights='1 0.5':normalize=0[a]" -map 0:v -map "[a]")
+      # Two audio tracks. The first, the one a player plays: the microphone at
+      # full level plus system audio at half, the balance the old BlackHole mix
+      # had. The second, tagged "speakers" and not played by default: the same
+      # two sources kept apart, microphone left and system audio right, so the
+      # transcription can tell who spoke, with the call window on screen or not.
+      # aresample=async lets the microphone clock drift against the pipe
+      # without the mixer stalling or the two sides sliding apart over an hour.
+      # duration=first and apad: the take ends when the microphone input does,
+      # and a helper that dies early only costs the system audio from that
+      # moment on, as silence on its side of the speakers track.
+      MIX=(-filter_complex "[0:a]aresample=async=1,aformat=channel_layouts=mono,asplit=2[mic][micv];[1:a]aformat=channel_layouts=mono,apad,asplit=2[sys][sysv];[mic][sys]amix=inputs=2:duration=first:weights='1 0.5':normalize=0[a];[micv][sysv]join=inputs=2:channel_layout=stereo:map=0.0-FL|1.0-FR[spk]" \
+        -map 0:v -map "[a]" -map "[spk]" -b:a:1 64k -metadata:s:a:1 handler_name=speakers -disposition:a:1 0)
       echo "Audio: $MIC_NAME + system audio"
     else
       MIX=(-ac 1)
@@ -1232,7 +1283,7 @@ $descr
       -thread_queue_size 1024 -f avfoundation -framerate 5 -capture_cursor 1 -i "${VIDEO}:${AUDIO}" \
       ${SYS_INPUT[@]+"${SYS_INPUT[@]}"} \
       -r 1 -c:v hevc_videotoolbox -b:v 200k -tag:v hvc1 \
-      -c:a aac "${MIX[@]}" -b:a 48k \
+      -c:a aac -b:a 48k "${MIX[@]}" \
       -f segment -segment_time 3600 -reset_timestamps 1 -strftime 1 \
       "$DIR/%Y-%m-%d_%H-%M.mp4" \
       >>"$DIR/.record.log" 2>&1 &

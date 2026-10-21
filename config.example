@@ -34,6 +34,12 @@
 # alone, so on headphones only your own voice.
 # RECORD_SYSTEM_AUDIO=1
 
+# With system audio on, every transcript line says who spoke: the microphone
+# side gets the first name, what the Mac played (the other side of a call) the
+# second. Works whether or not the call window is on screen.
+# RECORD_SPEAKER_ME="Me"
+# RECORD_SPEAKER_OTHERS="Others"
+
 # What writes the title, tags, summary and screen description. Either a CLI
 # you already have installed and signed in (install.sh does not touch it):
 #

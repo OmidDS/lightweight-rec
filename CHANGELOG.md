@@ -7,6 +7,16 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- Every transcript line says who spoke when system audio is on: `Me:` for the
+  microphone, `Others:` for what the Mac played, so the person recording is no
+  longer credited with the other side's words or the other way round. The take
+  keeps a second, stereo audio track (microphone left, system audio right,
+  not played by default) and Whisper diarizes it. It works with the call window
+  hidden. `RECORD_SPEAKER_ME` and `RECORD_SPEAKER_OTHERS` rename the two, and
+  the AI pass is told what the labels mean.
+
 ## [0.4.0] - 2026-09-18
 
 Verified end to end on Apple Silicon, macOS 26, against LM Studio serving
