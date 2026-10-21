@@ -17,3 +17,8 @@
 # $HOME word splits on a home directory whose name contains a space and the
 # hotkey dies with nothing on screen and nothing in any log the README names.
 alt - r : "$HOME/bin/record" toggle
+
+# Option+Shift+R: the same toggle on Capture screen 1, the external display
+# next to a laptop. Either key stops a running take. RECORD_SCREEN set in
+# ~/.config/record/config wins over this one, so leave it unset there.
+alt + shift - r : RECORD_SCREEN=1 "$HOME/bin/record" toggle
