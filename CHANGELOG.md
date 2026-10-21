@@ -16,6 +16,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   not played by default) and Whisper diarizes it. It works with the call window
   hidden. `RECORD_SPEAKER_ME` and `RECORD_SPEAKER_OTHERS` rename the two, and
   the AI pass is told what the labels mean.
+- Option+Shift+R starts and stops a take on `Capture screen 1`, so a laptop
+  with an external display picks the screen per take instead of editing
+  `RECORD_SCREEN`. Option+R still records `Capture screen 0`.
 
 ## [0.4.0] - 2026-09-18
 

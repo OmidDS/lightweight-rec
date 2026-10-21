@@ -211,6 +211,7 @@ Screen Recording also covers the system audio capture.
 | Command | Effect |
 |---|---|
 | `Option+R` | start or stop, with a notification. A second tap within 20 s is ignored: it meant start, not stop |
+| `Option+Shift+R` | the same on `Capture screen 1`, the external display on a laptop. Either key stops a take. Works only while `RECORD_SCREEN` is unset in the config |
 | `record status` | running or idle, which screen, which audio, disk used by the videos |
 | `record screens` | displays, their ffmpeg index, which one is recorded |
 | `record mic` | the microphone the next start would open, and the system audio switch. Read only |
